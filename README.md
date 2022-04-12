@@ -97,3 +97,55 @@ LazyInitBranchless.GetObjectOnly(LazyInitBranchless)
 ```
 
 no branching :)
+
+## int modulo constant optimization
+
+when performing modulo operations with a constant modulus it type casting can improve performance when it is known that the input is always positive.
+Given the following method for example:
+
+```csharp
+public int Mod64(int input) 
+{
+    // for some reason we know that input is always going to be >= 0 but 
+    // we use int instead of uint because int is way more commonly used. 
+    return input % 64;
+}
+```
+
+The following JIT asm will be produced:
+
+```asm
+Mod64(Int32)
+    L0000: mov eax, edx
+    L0002: sar eax, 0x1f
+    L0005: and eax, 0x3f
+    L0008: add eax, edx
+    L000a: and eax, 0xffffffc0
+    L000d: sub edx, eax
+    L000f: mov eax, edx
+    L0011: ret
+```
+
+The CLR already optimizes the modulo operation away during JIT compilation (and does so for any constant modulus, doesn't have to be a power of two)
+
+*However* it does not know that out input cannot be negative thus doing some complicated right shifting and handling of negative values.
+
+A simple type cast solves this:
+
+```csharp
+public int Mod64NonNegative(int input) 
+{
+    return (int)((uint)input % 64);
+}
+```
+
+performing the modulo operation on an unsigned integer allowes the CLR to optimize it even more:
+
+```asm
+Mod64NonNegative(Int32)
+    L0000: mov eax, edx
+    L0002: and eax, 0x3f
+    L0005: ret
+```
+
+So if you know your operand is always unsigned then use the unsigned modulo operation :)
